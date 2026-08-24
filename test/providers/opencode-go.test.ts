@@ -135,7 +135,7 @@ describe("OpenCode Go usage normalization", () => {
       {
         ...SUCCESS_PAYLOAD,
         weeklyUsage: undefined,
-        dailyUsage: { status: "ok", resetInSec: 1, usagePercent: 1 },
+        dailyQuota: { status: "ok", resetInSec: 1, usagePercent: 1 },
       },
       NOW,
     );
@@ -146,7 +146,7 @@ describe("OpenCode Go usage normalization", () => {
     ]);
     expect(normalized.diagnostics).toEqual([
       { windowId: "weekly", code: "usage_missing" },
-      { windowId: "unknown:dailyUsage", code: "usage_invalid" },
+      { windowId: "unknown:dailyQuota", code: "usage_invalid" },
     ]);
   });
 
@@ -218,6 +218,32 @@ describe("OpenCode Go request and failure handling", () => {
     expect(interpreted.windows[2].windowSeconds).toBeUndefined();
   });
 
+  it("keeps balance-backed exhaustion non-definitive", async () => {
+    const exhausted = {
+      useBalance: true,
+      rollingUsage: { status: "ok", resetInSec: 12_345, usagePercent: 100 },
+      weeklyUsage: { status: "ok", resetInSec: 345_678, usagePercent: 100 },
+      monthlyUsage: {
+        status: "ok",
+        resetInSec: 1_234_567,
+        usagePercent: 100,
+      },
+    };
+    const report = await testAdapter({
+      fetch: vi.fn(async () => jsonResponse(exhausted)),
+    }).fetchQuota(OPTIONS);
+    const interpreted = withQuotaSemantics(report, new Date(NOW).toISOString());
+
+    expect(report.useBalance).toBe(true);
+    expect(
+      interpreted.quotaSemantics?.effectiveAvailability[0],
+    ).toMatchObject({
+      status: "known",
+      effectivePercentRemaining: 0,
+      runway: { status: "unknown" },
+    });
+  });
+
   it.each([
     [401, "auth_required", "provider_auth_rejected"],
     [403, "auth_required", "provider_entitlement_required"],
@@ -276,6 +302,31 @@ describe("OpenCode Go request and failure handling", () => {
     }
   });
 
+  it("rejects duplicate top-level response keys before JSON parsing", async () => {
+    const duplicatePayload = `{
+      "useBalance": false,
+      "rollingUsage": {"status":"ok","resetInSec":12345,"usagePercent":20},
+      "rollingUsage": {"status":"ok","resetInSec":12345,"usagePercent":90},
+      "weeklyUsage": {"status":"ok","resetInSec":345678,"usagePercent":40},
+      "monthlyUsage": {"status":"ok","resetInSec":1234567,"usagePercent":35}
+    }`;
+    const report = await testAdapter({
+      fetch: vi.fn(
+        async () =>
+          new Response(duplicatePayload, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    }).fetchQuota(OPTIONS);
+
+    expect(report).toMatchObject({
+      source: "unavailable",
+      windows: [],
+      state: { status: "error", error: "schema_invalid" },
+    });
+  });
+
   it("reuses reset-valid stale cache for a transient provider failure", async () => {
     const cached = cachedReport();
     const report = await testAdapter({
@@ -305,6 +356,20 @@ describe("OpenCode Go request and failure handling", () => {
     expect(report.state).toMatchObject({
       status: "auth_required",
       error: "provider_auth_rejected",
+    });
+  });
+
+  it("does not use stale cache for a current entitlement rejection", async () => {
+    const report = await testAdapter({
+      fetch: vi.fn(async () => new Response(null, { status: 403 })),
+      readCachedProvider: () => cachedReport(),
+    }).fetchQuota(OPTIONS);
+
+    expect(report.source).toBe("unavailable");
+    expect(report.state).toMatchObject({
+      status: "auth_required",
+      stale: false,
+      error: "provider_entitlement_required",
     });
   });
 });

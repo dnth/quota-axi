@@ -212,6 +212,7 @@ export type ProviderQuota = {
   /** Report provenance. Omitted from default `--json`; see `--full`. */
   source?: ProviderSource;
   plan?: string;
+  useBalance?: boolean;
   account?: {
     email?: string;
     organization?: string;

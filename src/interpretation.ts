@@ -104,6 +104,7 @@ function semanticsFor(
         provider.windows,
         provider.state.untrustedWindowIds ?? [],
         generatedAt,
+        provider.useBalance === true,
       );
     case "cursor":
       return cursorSemantics(provider.windows, generatedAt);
@@ -284,6 +285,7 @@ function opencodeGoSemantics(
   windows: QuotaWindow[],
   untrustedWindowIds: string[],
   generatedAt: string,
+  useBalance: boolean,
 ): QuotaSemantics {
   const recognized = windows.filter(({ id }) =>
     OPENCODE_GO_RECOGNIZED_WINDOW_IDS.includes(id),
@@ -322,10 +324,21 @@ function opencodeGoSemantics(
       unresolvedWindowIds,
     };
   }
-  return knownSemantics(
+  const effectiveAvailability =
     recognized.length > 0
       ? [availability("all_models", recognized, generatedAt)]
-      : [],
+      : [];
+  if (
+    useBalance &&
+    effectiveAvailability[0]?.effectivePercentRemaining === 0
+  ) {
+    effectiveAvailability[0] = {
+      ...effectiveAvailability[0],
+      runway: { status: "unknown" },
+    };
+  }
+  return knownSemantics(
+    effectiveAvailability,
     "OpenCode Go's five-hour, weekly, and monthly allowance windows jointly bound every model, so effective remaining is the minimum across the named windows. A Zen balance fallback, when enabled by the provider, is not quantified by the usage endpoint.",
   );
 }

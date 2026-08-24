@@ -202,6 +202,9 @@ async function acquireOpencodeGoQuota(
       label: "OpenCode Go",
       source: "api",
       plan: "go",
+      ...(normalized.useBalance === undefined
+        ? {}
+        : { useBalance: normalized.useBalance }),
       windows: normalized.windows,
       state: {
         status: "fresh",
@@ -430,6 +433,11 @@ async function requestOpencodeGoUsage(
         staleEligible: true,
       });
     }
+    if (duplicateTopLevelJsonKeys(text).length > 0) {
+      throw new OpencodeGoFailure("schema_invalid", {
+        staleEligible: true,
+      });
+    }
     try {
       return JSON.parse(text) as unknown;
     } catch {
@@ -455,7 +463,6 @@ function rejectHttpFailure(response: Response, receivedAt: number): void {
   if (status === 403) {
     throw new OpencodeGoFailure("provider_entitlement_required", {
       status: "auth_required",
-      staleEligible: true,
     });
   }
   if (status === 408) {
@@ -662,8 +669,8 @@ export function normalizeOpencodeGoPayload(
   }
   for (const key of Object.keys(root)) {
     if (
-      /usage$/i.test(key) &&
-      !definitions.some(({ key: knownKey }) => knownKey === key)
+      !definitions.some(({ key: knownKey }) => knownKey === key) &&
+      isUsageBlock(root[key])
     ) {
       diagnostics.push({
         windowId: `unknown:${key}`,
@@ -682,6 +689,106 @@ export function normalizeOpencodeGoPayload(
     diagnostics,
     ...(useBalance === undefined ? {} : { useBalance }),
   };
+}
+
+function isUsageBlock(value: unknown): boolean {
+  const detail = objectValue(value);
+  return Boolean(
+    detail && ("resetInSec" in detail || "usagePercent" in detail),
+  );
+}
+
+function duplicateTopLevelJsonKeys(text: string): string[] {
+  let index = skipJsonWhitespace(text, 0);
+  if (text[index] !== "{") return [];
+  index = skipJsonWhitespace(text, index + 1);
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  if (text[index] === "}") return [];
+  while (index < text.length) {
+    const key = scanJsonString(text, index);
+    if (!key) return [];
+    if (seen.has(key.value)) duplicates.add(key.value);
+    seen.add(key.value);
+    index = skipJsonWhitespace(text, key.next);
+    if (text[index] !== ":") return [];
+    const valueEnd = skipJsonValue(text, index + 1);
+    if (valueEnd === undefined) return [];
+    index = skipJsonWhitespace(text, valueEnd);
+    if (text[index] === "}") return [...duplicates];
+    if (text[index] !== ",") return [];
+    index = skipJsonWhitespace(text, index + 1);
+  }
+  return [];
+}
+
+function skipJsonValue(text: string, start: number): number | undefined {
+  let index = skipJsonWhitespace(text, start);
+  if (text[index] === '"') return scanJsonString(text, index)?.next;
+  if (text[index] === "{") {
+    index = skipJsonWhitespace(text, index + 1);
+    if (text[index] === "}") return index + 1;
+    while (index < text.length) {
+      const key = scanJsonString(text, index);
+      if (!key) return undefined;
+      index = skipJsonWhitespace(text, key.next);
+      if (text[index] !== ":") return undefined;
+      const valueEnd = skipJsonValue(text, index + 1);
+      if (valueEnd === undefined) return undefined;
+      index = skipJsonWhitespace(text, valueEnd);
+      if (text[index] === "}") return index + 1;
+      if (text[index] !== ",") return undefined;
+      index = skipJsonWhitespace(text, index + 1);
+    }
+    return undefined;
+  }
+  if (text[index] === "[") {
+    index = skipJsonWhitespace(text, index + 1);
+    if (text[index] === "]") return index + 1;
+    while (index < text.length) {
+      const valueEnd = skipJsonValue(text, index);
+      if (valueEnd === undefined) return undefined;
+      index = skipJsonWhitespace(text, valueEnd);
+      if (text[index] === "]") return index + 1;
+      if (text[index] !== ",") return undefined;
+      index = skipJsonWhitespace(text, index + 1);
+    }
+    return undefined;
+  }
+  const scalar = text
+    .slice(index)
+    .match(/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
+  return scalar ? index + scalar[0].length : undefined;
+}
+
+function scanJsonString(
+  text: string,
+  start: number,
+): { value: string; next: number } | undefined {
+  if (text[start] !== '"') return undefined;
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (text[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (text[index] === '"') {
+      try {
+        return {
+          value: JSON.parse(text.slice(start, index + 1)) as string,
+          next: index + 1,
+        };
+      } catch {
+        return undefined;
+      }
+    }
+  }
+  return undefined;
+}
+
+function skipJsonWhitespace(text: string, start: number): number {
+  let index = start;
+  while (/\s/.test(text[index] ?? "")) index += 1;
+  return index;
 }
 
 function numericScalar(value: unknown): number | undefined {
