@@ -679,11 +679,17 @@ describe("CLI quota rendering", () => {
       await capture(["--provider", "opencode-go", "--json"]),
     ) as QuotaAxiResponse;
     expect(json.providers[0]?.plan).toBe("go");
+    expect(json.providers[0]?.useBalance).toBeUndefined();
     expect(json.providers[0]?.windows.map(({ id }) => id)).toEqual([
       "five_hour",
       "weekly",
       "monthly",
     ]);
+
+    const fullJson = JSON.parse(
+      await capture(["--provider", "opencode-go", "--full", "--json"]),
+    ) as QuotaAxiResponse;
+    expect(fullJson.providers[0]?.useBalance).toBe(true);
   });
 
   it("renders the card-grid report for --tui and composes with --provider", async () => {
@@ -1497,6 +1503,7 @@ function freshOpencodeGoQuota(): ProviderQuota {
     label: "OpenCode Go",
     source: "api",
     plan: "go",
+    useBalance: true,
     windows: [
       {
         id: "five_hour",

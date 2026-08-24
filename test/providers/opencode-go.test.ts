@@ -136,6 +136,7 @@ describe("OpenCode Go usage normalization", () => {
         ...SUCCESS_PAYLOAD,
         weeklyUsage: undefined,
         dailyQuota: { status: "ok", resetInSec: 1, usagePercent: 1 },
+        dailyUsage: { status: "pending" },
       },
       NOW,
     );
@@ -147,6 +148,7 @@ describe("OpenCode Go usage normalization", () => {
     expect(normalized.diagnostics).toEqual([
       { windowId: "weekly", code: "usage_missing" },
       { windowId: "unknown:dailyQuota", code: "usage_invalid" },
+      { windowId: "unknown:dailyUsage", code: "usage_invalid" },
     ]);
   });
 

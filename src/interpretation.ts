@@ -328,12 +328,14 @@ function opencodeGoSemantics(
     recognized.length > 0
       ? [availability("all_models", recognized, generatedAt)]
       : [];
+  const balanceBackedAvailability = effectiveAvailability[0];
   if (
     useBalance &&
-    effectiveAvailability[0]?.effectivePercentRemaining === 0
+    (balanceBackedAvailability?.runway?.status === "exhausted_now" ||
+      balanceBackedAvailability?.runway?.status === "projected_exhaustion")
   ) {
     effectiveAvailability[0] = {
-      ...effectiveAvailability[0],
+      ...balanceBackedAvailability,
       runway: { status: "unknown" },
     };
   }

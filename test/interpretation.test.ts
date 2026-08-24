@@ -445,6 +445,28 @@ describe("quota semantics", () => {
     });
   });
 
+  it("does not claim projected exhaustion when OpenCode Go balance fallback is enabled", () => {
+    const opencode = provider("opencode-go", [
+      window("five_hour", "session", 10, {
+        windowSeconds: 18_000,
+        resetsAt: new Date(
+          Date.parse(GENERATED_AT) + 9_000_000,
+        ).toISOString(),
+      }),
+      window("weekly", "weekly", 100),
+      window("monthly", "monthly", 100),
+    ]);
+    opencode.useBalance = true;
+
+    const availability = withQuotaSemantics(opencode, GENERATED_AT)
+      .quotaSemantics?.effectiveAvailability[0];
+
+    expect(availability).toMatchObject({
+      effectivePercentRemaining: 10,
+      runway: { status: "unknown" },
+    });
+  });
+
   it("reports Z.AI token and tool headroom as separate resources", () => {
     const result = withQuotaSemantics(
       provider("zai", [zaiSessionWindow(), zaiWeeklyWindow(), zaiToolWindow()]),

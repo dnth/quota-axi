@@ -670,7 +670,7 @@ export function normalizeOpencodeGoPayload(
   for (const key of Object.keys(root)) {
     if (
       !definitions.some(({ key: knownKey }) => knownKey === key) &&
-      isUsageBlock(root[key])
+      (/usage$/i.test(key) || isUsageBlock(root[key]))
     ) {
       diagnostics.push({
         windowId: `unknown:${key}`,
