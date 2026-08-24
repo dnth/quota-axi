@@ -613,7 +613,7 @@ export function normalizeOpencodeGoPayload(
   const definitions = [
     {
       id: "five_hour" as const,
-      label: "5 hour",
+      label: "session",
       kind: "session" as const,
       seconds: FIVE_HOURS_SECONDS,
       key: "rolling",

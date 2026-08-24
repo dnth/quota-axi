@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"sed -n 101,125p src/pace.ts; grep -rn '\\\"5 hour\\\"\\\\|5 hour' src test README.md docs 2>/dev/null\"}",
+  "error": "Exit code 2\nexport function computeEffectiveRunway(\n  windows: QuotaWindow[],\n  generatedAt: string,\n): EffectiveRunway {\n  const exhausted = windows.find(\n    (window) => finiteNumber(window.percentRemaining) === 0,\n  );\n  const generatedAtMs = Date.parse(generatedAt);\n\n  if (exhausted) {\n    return {\n      status: \"exhausted_now\",\n      usableRunwaySeconds: 0,\n      limitingWindowId: exhausted.id,\n      ...(isRepresentableDateMs(generatedAtMs)\n        ? { projectedExhaustedAt: new Date(generat...",
+  "timestamp": "2026-08-24T13:47:57.229Z",
+  "retry_count": 1
+}

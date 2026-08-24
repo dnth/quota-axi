@@ -101,7 +101,7 @@ describe("OpenCode Go usage normalization", () => {
     expect(normalized.windows).toEqual([
       {
         id: "five_hour",
-        label: "5 hour",
+        label: "session",
         kind: "session",
         percentUsed: 0,
         percentRemaining: 100,

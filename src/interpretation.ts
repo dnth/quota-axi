@@ -334,9 +334,15 @@ function opencodeGoSemantics(
     (balanceBackedAvailability?.runway?.status === "exhausted_now" ||
       balanceBackedAvailability?.runway?.status === "projected_exhaustion")
   ) {
+    const limitingWindowId = balanceBackedAvailability.runway?.limitingWindowId;
     effectiveAvailability[0] = {
       ...balanceBackedAvailability,
-      runway: { status: "unknown" },
+      runway: {
+        status: "unknown",
+        unmeasurableWindowIds: limitingWindowId
+          ? [limitingWindowId]
+          : recognized.map(({ id }) => id),
+      },
     };
   }
   return knownSemantics(

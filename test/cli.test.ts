@@ -692,6 +692,24 @@ describe("CLI quota rendering", () => {
     expect(fullJson.providers[0]?.useBalance).toBe(true);
   });
 
+  it("names the balance-suppressed OpenCode Go bound in attention[]", async () => {
+    useTempCache();
+    const quota = freshOpencodeGoQuota();
+    quota.windows[0] = {
+      ...quota.windows[0]!,
+      percentUsed: 100,
+      percentRemaining: 0,
+    };
+    PROVIDERS["opencode-go"] = providerWithQuota(quota);
+
+    const output = await capture(["--provider", "opencode-go"]);
+
+    expect(toonRows(output, "exhaustion")).toEqual([]);
+    expect(output).toContain(
+      "opencode-go,all_models,unmeasurable,five_hour blocks runway",
+    );
+  });
+
   it("renders the card-grid report for --tui and composes with --provider", async () => {
     useTempCache();
     PROVIDERS.codex = providerWithQuota(freshCodexQuota());
@@ -1507,7 +1525,7 @@ function freshOpencodeGoQuota(): ProviderQuota {
     windows: [
       {
         id: "five_hour",
-        label: "5 hour",
+        label: "session",
         kind: "session",
         percentUsed: 10,
         percentRemaining: 90,
