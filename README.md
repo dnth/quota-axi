@@ -35,7 +35,7 @@ $ npx -y quota-axi
 bin: ~/.npm/_npx/.../quota-axi
 description: Report local agent-provider quota windows for routing-aware agents
 generatedAt: "2026-03-15T16:42:00.000Z"
-quota[10]{provider,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:
+quota[11]{provider,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:
   claude,all_models,64,-0.3798,projected_exhaustion,established,seven_day,"2026-03-20T17:59:45.600Z"
   claude,seven_day_opus,64,0.3218,projected_exhaustion,established,seven_day,"2026-03-20T17:59:45.600Z"
   claude,"model:fable",64,-0.0932,projected_exhaustion,established,seven_day,"2026-03-20T17:59:45.600Z"
@@ -46,6 +46,7 @@ quota[10]{provider,scope,effectivePercentRemaining,spendPriority,runway,confiden
   kimi,all_models,74,0.2484,through_reset,established,weekly,"2026-03-20T12:17:02.400Z"
   zai,all_models,50,-1.0046,projected_exhaustion,established,weekly,"2026-03-20T16:42:00.000Z"
   zai,tools,100,unknown,unknown,unknown,mcp_month,"2026-04-01T00:00:00.000Z"
+  opencode-go,all_models,58,unknown,unknown,unknown,weekly,"2026-03-20T16:42:00.000Z"
 exhaustion[6]{provider,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:
   claude,all_models,298906,"2026-03-19T03:43:45.600Z",seven_day
   claude,seven_day_opus,298906,"2026-03-19T03:43:45.600Z",seven_day
@@ -53,9 +54,10 @@ exhaustion[6]{provider,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWi
   codex,all_models,10365,"2026-03-15T19:34:45.428Z",five_hour
   codex,"model:gpt-5.1-codex",10365,"2026-03-15T19:34:45.428Z",five_hour
   zai,all_models,172800,"2026-03-17T16:42:00.000Z",weekly
-attention[3]{provider,scope,kind,detail,remedy}:
+attention[4]{provider,scope,kind,detail,remedy}:
   copilot,all,unresolved_windows,chat + premium_interactions,none
   zai,tools,unmeasurable,"mcp_month blocks runway + spendPriority",none
+  opencode-go,all_models,unmeasurable,"monthly blocks runway + spendPriority",none
   agy,all,unresolved_windows,gemini_5h + gemini_weekly + claude_gpt_5h + claude_gpt_weekly,none
 help[1]:
   Run `quota-axi --full` for windows, pace, reserve, and account evidence
@@ -679,7 +681,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 - It reads OpenCode's local `auth.json` (`$XDG_DATA_HOME/opencode/auth.json` when set, otherwise `~/.local/share/opencode/auth.json`; `%LOCALAPPDATA%\opencode\auth.json` on Windows) read-only and accepts only the `opencode-go` entry with `type: "api"` and a nonempty, control-byte-free literal `key`. Environment, template, and command references are not resolved or executed.
 - It sends one redirect-disabled `GET` to `https://opencode.ai/zen/go/v1/usage` with `Authorization: Bearer <key>`, a 15 second total deadline, and a 262,144-byte decoded-body cap. It requires JSON and does not scrape the dashboard, open a browser, send cookies, or launch OpenCode.
 - HTTP 401 is an invalid/auth-required credential result and retires the cached Go snapshot. HTTP 403 is an entitlement-required result; transient transport, timeout, 408, 429, 5xx, decoding, and schema failures may reuse reset-valid stale windows under the normal cache rules.
-- The usage endpoint nests Go allowance windows under `usage`; each `rolling`, `weekly`, or `monthly` block reports `percent` used and an absolute `resetsAt`. Monthly reset timing follows the provider's subscription anniversary and month-end handling through that absolute timestamp; quota-axi does not synthesize a cycle start or fixed monthly duration. `useBalance: true` is retained as a derivation input and exposed only with `--full`; because the endpoint does not expose the Zen monetary balance, quota-axi reports no balance amount, credit window, or known extra runway, and leaves exhausted or projected-exhaustion runway unknown when that fallback is enabled.
+- The usage endpoint nests Go allowance windows under `usage`; each `rolling`, `weekly`, or `monthly` block reports `percent` used and an absolute `resetsAt`, which quota-axi republishes canonicalized to ISO 8601. Monthly reset timing follows the provider's subscription anniversary and month-end handling through that absolute timestamp; quota-axi does not synthesize a cycle start or fixed monthly duration. `useBalance: true` is retained as a derivation input and exposed only with `--full`; because the endpoint does not expose the Zen monetary balance, quota-axi reports no balance amount, credit window, or known extra runway, and leaves exhausted or projected-exhaustion runway unknown when that fallback is enabled, naming the suppressed bound in `runway.unmeasurableWindowIds` so the suppression still surfaces as an `attention[]` fact.
 
 **Antigravity**
 
