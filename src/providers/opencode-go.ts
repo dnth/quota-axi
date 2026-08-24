@@ -75,6 +75,11 @@ type ResponseBodyLifetime = {
   cancel(action?: () => Promise<unknown> | undefined): Promise<void>;
 };
 
+type OpencodeGoUsageResponse = {
+  payload: unknown;
+  receivedAt: number;
+};
+
 export function extractOpencodeGoCredential(
   value: unknown,
   path: string,
@@ -185,13 +190,16 @@ async function acquireOpencodeGoQuota(
       return failureReport(failure, attempts, dependencies);
     }
 
-    const payload = await requestOpencodeGoUsage(
+    const response = await requestOpencodeGoUsage(
       resolution.apiKey,
       controller.signal,
       dependencies.fetch,
       dependencies.now,
     );
-    const normalized = normalizeOpencodeGoPayload(payload, dependencies.now());
+    const normalized = normalizeOpencodeGoPayload(
+      response.payload,
+      response.receivedAt,
+    );
     const untrustedWindowIds = normalized.diagnostics.map(
       ({ windowId }) => windowId,
     );
@@ -368,7 +376,7 @@ async function requestOpencodeGoUsage(
   signal: AbortSignal,
   fetchImplementation: typeof globalThis.fetch,
   now: () => number,
-): Promise<unknown> {
+): Promise<OpencodeGoUsageResponse> {
   let response: Response;
   try {
     response = await waitForDeadline(
@@ -439,7 +447,7 @@ async function requestOpencodeGoUsage(
       });
     }
     try {
-      return JSON.parse(text) as unknown;
+      return { payload: JSON.parse(text) as unknown, receivedAt };
     } catch {
       throw new OpencodeGoFailure("malformed_json", { staleEligible: true });
     }

@@ -220,6 +220,23 @@ describe("OpenCode Go request and failure handling", () => {
     expect(interpreted.windows[2].windowSeconds).toBeUndefined();
   });
 
+  it("anchors reset durations to response receipt time", async () => {
+    const later = NOW + 10_000;
+    const now = vi
+      .fn<() => number>()
+      .mockReturnValueOnce(NOW)
+      .mockReturnValue(later);
+    const report = await testAdapter({
+      fetch: vi.fn(async () => jsonResponse(SUCCESS_PAYLOAD)),
+      now,
+    }).fetchQuota(OPTIONS);
+
+    expect(report.windows[0]?.resetsAt).toBe(
+      new Date(NOW + 12_345_000).toISOString(),
+    );
+    expect(report.state.refreshedAt).toBe(new Date(later).toISOString());
+  });
+
   it("keeps balance-backed exhaustion non-definitive", async () => {
     const exhausted = {
       useBalance: true,
