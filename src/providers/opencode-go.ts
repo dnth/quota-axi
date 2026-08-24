@@ -75,9 +75,20 @@ type ResponseBodyLifetime = {
   cancel(action?: () => Promise<unknown> | undefined): Promise<void>;
 };
 
+type OpencodeGoUsageWindowResponse = {
+  status?: unknown;
+  percent?: unknown;
+  resetsAt?: unknown;
+};
+
 type OpencodeGoUsageResponse = {
-  payload: unknown;
-  receivedAt: number;
+  usage?: {
+    rolling?: OpencodeGoUsageWindowResponse;
+    weekly?: OpencodeGoUsageWindowResponse;
+    monthly?: OpencodeGoUsageWindowResponse;
+    [windowId: string]: unknown;
+  };
+  useBalance?: unknown;
 };
 
 export function extractOpencodeGoCredential(
@@ -190,16 +201,13 @@ async function acquireOpencodeGoQuota(
       return failureReport(failure, attempts, dependencies);
     }
 
-    const response = await requestOpencodeGoUsage(
+    const payload = await requestOpencodeGoUsage(
       resolution.apiKey,
       controller.signal,
       dependencies.fetch,
       dependencies.now,
     );
-    const normalized = normalizeOpencodeGoPayload(
-      response.payload,
-      response.receivedAt,
-    );
+    const normalized = normalizeOpencodeGoPayload(payload);
     const untrustedWindowIds = normalized.diagnostics.map(
       ({ windowId }) => windowId,
     );
@@ -447,7 +455,7 @@ async function requestOpencodeGoUsage(
       });
     }
     try {
-      return { payload: JSON.parse(text) as unknown, receivedAt };
+      return JSON.parse(text) as OpencodeGoUsageResponse;
     } catch {
       throw new OpencodeGoFailure("malformed_json", { staleEligible: true });
     }
@@ -594,16 +602,12 @@ function createResponseBodyLifetime(response: Response): ResponseBodyLifetime {
 
 export function normalizeOpencodeGoPayload(
   payload: unknown,
-  now: number = Date.now(),
 ): NormalizedOpencodeGoPayload {
-  if (
-    payload === null ||
-    typeof payload !== "object" ||
-    Array.isArray(payload)
-  ) {
+  const root = objectValue(payload);
+  const usage = objectValue(root?.usage);
+  if (!root || !usage) {
     throw new OpencodeGoFailure("schema_invalid", { staleEligible: true });
   }
-  const root = payload as Record<string, unknown>;
   const diagnostics: OpencodeGoDiagnostic[] = [];
   const windows: QuotaWindow[] = [];
   const definitions = [
@@ -612,73 +616,70 @@ export function normalizeOpencodeGoPayload(
       label: "5 hour",
       kind: "session" as const,
       seconds: FIVE_HOURS_SECONDS,
-      key: "rollingUsage",
+      key: "rolling",
     },
     {
       id: "weekly" as const,
       label: "week",
       kind: "weekly" as const,
       seconds: WEEK_SECONDS,
-      key: "weeklyUsage",
+      key: "weekly",
     },
     {
       id: "monthly" as const,
       label: "month",
       kind: "monthly" as const,
       seconds: undefined,
-      key: "monthlyUsage",
+      key: "monthly",
     },
   ];
 
   for (const definition of definitions) {
-    const raw = root[definition.key];
+    const raw = usage[definition.key];
     if (raw === undefined || raw === null) {
       diagnostics.push({ windowId: definition.id, code: "usage_missing" });
       continue;
     }
-    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    const detail = objectValue(raw);
+    if (!detail) {
       diagnostics.push({ windowId: definition.id, code: "usage_invalid" });
       continue;
     }
-    const detail = raw as Record<string, unknown>;
     if (detail.status !== "ok") {
       diagnostics.push({ windowId: definition.id, code: "usage_not_ok" });
       continue;
     }
-    const resetInSec = numericScalar(detail.resetInSec);
-    const usagePercent = numericScalar(detail.usagePercent);
-    const resetAtMilliseconds =
-      resetInSec === undefined ? undefined : now + resetInSec * 1_000;
+    const percentUsed = numericScalar(detail.percent);
+    const resetsAt =
+      typeof detail.resetsAt === "string" &&
+      Number.isFinite(Date.parse(detail.resetsAt))
+        ? detail.resetsAt
+        : undefined;
     if (
-      resetInSec === undefined ||
-      resetInSec <= 0 ||
-      resetAtMilliseconds === undefined ||
-      !Number.isFinite(resetAtMilliseconds) ||
-      Math.abs(resetAtMilliseconds) > 8.64e15 ||
-      usagePercent === undefined ||
-      usagePercent < 0 ||
-      usagePercent > 100
+      percentUsed === undefined ||
+      percentUsed < 0 ||
+      percentUsed > 100 ||
+      resetsAt === undefined
     ) {
       diagnostics.push({ windowId: definition.id, code: "usage_invalid" });
       continue;
     }
-    const resetsAt = new Date(resetAtMilliseconds).toISOString();
     windows.push({
       id: definition.id,
       label: definition.label,
       kind: definition.kind,
-      percentUsed: usagePercent,
-      percentRemaining: 100 - usagePercent,
+      percentUsed,
+      percentRemaining: 100 - percentUsed,
       resetsAt,
       ...(definition.seconds !== undefined
         ? { windowSeconds: definition.seconds }
         : {}),
     });
   }
-  for (const key of Object.keys(root)) {
+  for (const key of Object.keys(usage)) {
     if (
       !definitions.some(({ key: knownKey }) => knownKey === key) &&
-      (/usage$/i.test(key) || isUsageBlock(root[key]))
+      (/usage$/i.test(key) || isUsageBlock(usage[key]))
     ) {
       diagnostics.push({
         windowId: `unknown:${key}`,
@@ -701,9 +702,7 @@ export function normalizeOpencodeGoPayload(
 
 function isUsageBlock(value: unknown): boolean {
   const detail = objectValue(value);
-  return Boolean(
-    detail && ("resetInSec" in detail || "usagePercent" in detail),
-  );
+  return Boolean(detail && ("percent" in detail || "resetsAt" in detail));
 }
 
 function duplicateTopLevelJsonKeys(text: string): string[] {

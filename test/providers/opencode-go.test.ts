@@ -14,12 +14,18 @@ import type { ProviderAdapter, ProviderQuota } from "../../src/types.js";
 const NOW = Date.parse("2026-08-24T12:00:00.000Z");
 const OPTIONS = { allowKeychainPrompt: false };
 const API_KEY = "synthetic-opencode-go-key-493";
-const SUCCESS_PAYLOAD = {
-  useBalance: false,
-  rollingUsage: { status: "ok", resetInSec: 12_345, usagePercent: 20 },
-  weeklyUsage: { status: "ok", resetInSec: 345_678, usagePercent: 40 },
-  monthlyUsage: { status: "ok", resetInSec: 1_234_567, usagePercent: 35 },
+type LiveUsagePayload = {
+  usage: {
+    rolling: { status: string; percent: number; resetsAt: string };
+    weekly: { status: string; percent: number; resetsAt: string };
+    monthly: { status: string; percent: number; resetsAt: string };
+  };
+  useBalance?: boolean;
 };
+
+const SUCCESS_PAYLOAD = JSON.parse(
+  readFileSync(join("test", "fixtures", "opencode-go", "usage.json"), "utf8"),
+) as LiveUsagePayload;
 
 let tempDir: string | undefined;
 
@@ -87,59 +93,64 @@ describe("OpenCode Go credential discovery", () => {
 });
 
 describe("OpenCode Go usage normalization", () => {
-  it("normalizes all three windows and preserves API reset durations", () => {
-    const normalized = normalizeOpencodeGoPayload(SUCCESS_PAYLOAD, NOW);
+  it("normalizes all three windows from the verified live response shape", () => {
+    const normalized = normalizeOpencodeGoPayload(SUCCESS_PAYLOAD);
 
-    expect(normalized).toMatchObject({ useBalance: false, diagnostics: [] });
+    expect(normalized).toMatchObject({ diagnostics: [] });
+    expect(normalized.useBalance).toBeUndefined();
     expect(normalized.windows).toEqual([
       {
         id: "five_hour",
         label: "5 hour",
         kind: "session",
-        percentUsed: 20,
-        percentRemaining: 80,
-        resetsAt: new Date(NOW + 12_345_000).toISOString(),
+        percentUsed: 0,
+        percentRemaining: 100,
+        resetsAt: "2026-08-24T17:00:00.000Z",
         windowSeconds: 18_000,
       },
       {
         id: "weekly",
         label: "week",
         kind: "weekly",
-        percentUsed: 40,
-        percentRemaining: 60,
-        resetsAt: new Date(NOW + 345_678_000).toISOString(),
+        percentUsed: 3,
+        percentRemaining: 97,
+        resetsAt: "2026-08-30T12:00:00.000Z",
         windowSeconds: 604_800,
       },
       {
         id: "monthly",
         label: "month",
         kind: "monthly",
-        percentUsed: 35,
-        percentRemaining: 65,
-        resetsAt: new Date(NOW + 1_234_567_000).toISOString(),
+        percentUsed: 73,
+        percentRemaining: 27,
+        resetsAt: "2026-09-12T12:00:00.000Z",
       },
     ]);
   });
 
   it("does not infer a monthly 30-day cycle or fabricate a cycle start", () => {
-    const monthly = normalizeOpencodeGoPayload(SUCCESS_PAYLOAD, NOW).windows[2];
+    const monthly = normalizeOpencodeGoPayload(SUCCESS_PAYLOAD).windows[2];
 
     expect(monthly.id).toBe("monthly");
-    expect(monthly.resetsAt).toBe(new Date(NOW + 1_234_567_000).toISOString());
+    expect(monthly.resetsAt).toBe("2026-09-12T12:00:00.000Z");
     expect(monthly.windowSeconds).toBeUndefined();
     expect(monthly.startsAt).toBeUndefined();
   });
 
   it("keeps valid windows but marks missing or unfamiliar usage conservatively", () => {
-    const normalized = normalizeOpencodeGoPayload(
-      {
-        ...SUCCESS_PAYLOAD,
-        weeklyUsage: undefined,
-        dailyQuota: { status: "ok", resetInSec: 1, usagePercent: 1 },
+    const normalized = normalizeOpencodeGoPayload({
+      ...SUCCESS_PAYLOAD,
+      usage: {
+        ...SUCCESS_PAYLOAD.usage,
+        weekly: undefined,
+        dailyQuota: {
+          status: "ok",
+          percent: 1,
+          resetsAt: "2026-08-25T12:00:00.000Z",
+        },
         dailyUsage: { status: "pending" },
       },
-      NOW,
-    );
+    });
 
     expect(normalized.windows.map(({ id }) => id)).toEqual([
       "five_hour",
@@ -153,10 +164,10 @@ describe("OpenCode Go usage normalization", () => {
   });
 
   it("retains useBalance without inventing credits or a balance amount", () => {
-    const normalized = normalizeOpencodeGoPayload(
-      { ...SUCCESS_PAYLOAD, useBalance: true },
-      NOW,
-    );
+    const normalized = normalizeOpencodeGoPayload({
+      ...SUCCESS_PAYLOAD,
+      useBalance: true,
+    });
 
     expect(normalized.useBalance).toBe(true);
     expect(normalized).not.toHaveProperty("credits");
@@ -213,14 +224,14 @@ describe("OpenCode Go request and failure handling", () => {
     expect(scope).toMatchObject({
       scope: "all_models",
       status: "known",
-      effectivePercentRemaining: 60,
+      effectivePercentRemaining: 27,
       boundedBy: ["five_hour", "weekly", "monthly"],
-      limitingWindowIds: ["weekly"],
+      limitingWindowIds: ["monthly"],
     });
     expect(interpreted.windows[2].windowSeconds).toBeUndefined();
   });
 
-  it("anchors reset durations to response receipt time", async () => {
+  it("preserves absolute reset timestamps regardless of the local clock", async () => {
     const later = NOW + 10_000;
     const now = vi
       .fn<() => number>()
@@ -231,21 +242,18 @@ describe("OpenCode Go request and failure handling", () => {
       now,
     }).fetchQuota(OPTIONS);
 
-    expect(report.windows[0]?.resetsAt).toBe(
-      new Date(NOW + 12_345_000).toISOString(),
-    );
+    expect(report.windows[0]?.resetsAt).toBe("2026-08-24T17:00:00.000Z");
     expect(report.state.refreshedAt).toBe(new Date(later).toISOString());
   });
 
   it("keeps balance-backed exhaustion non-definitive", async () => {
     const exhausted = {
+      ...SUCCESS_PAYLOAD,
       useBalance: true,
-      rollingUsage: { status: "ok", resetInSec: 12_345, usagePercent: 100 },
-      weeklyUsage: { status: "ok", resetInSec: 345_678, usagePercent: 100 },
-      monthlyUsage: {
-        status: "ok",
-        resetInSec: 1_234_567,
-        usagePercent: 100,
+      usage: {
+        rolling: { ...SUCCESS_PAYLOAD.usage.rolling, percent: 100 },
+        weekly: { ...SUCCESS_PAYLOAD.usage.weekly, percent: 100 },
+        monthly: { ...SUCCESS_PAYLOAD.usage.monthly, percent: 100 },
       },
     };
     const report = await testAdapter({
@@ -321,11 +329,16 @@ describe("OpenCode Go request and failure handling", () => {
 
   it("rejects duplicate top-level response keys before JSON parsing", async () => {
     const duplicatePayload = `{
-      "useBalance": false,
-      "rollingUsage": {"status":"ok","resetInSec":12345,"usagePercent":20},
-      "rollingUsage": {"status":"ok","resetInSec":12345,"usagePercent":90},
-      "weeklyUsage": {"status":"ok","resetInSec":345678,"usagePercent":40},
-      "monthlyUsage": {"status":"ok","resetInSec":1234567,"usagePercent":35}
+      "usage": {
+        "rolling": {"status":"ok","percent":0,"resetsAt":"2026-08-24T17:00:00.000Z"},
+        "weekly": {"status":"ok","percent":3,"resetsAt":"2026-08-30T12:00:00.000Z"},
+        "monthly": {"status":"ok","percent":73,"resetsAt":"2026-09-12T12:00:00.000Z"}
+      },
+      "usage": {
+        "rolling": {"status":"ok","percent":90,"resetsAt":"2026-08-24T17:00:00.000Z"},
+        "weekly": {"status":"ok","percent":3,"resetsAt":"2026-08-30T12:00:00.000Z"},
+        "monthly": {"status":"ok","percent":73,"resetsAt":"2026-09-12T12:00:00.000Z"}
+      }
     }`;
     const report = await testAdapter({
       fetch: vi.fn(
@@ -416,7 +429,7 @@ function cachedReport(): ProviderQuota {
     label: "OpenCode Go",
     source: "api",
     plan: "go",
-    windows: normalizeOpencodeGoPayload(SUCCESS_PAYLOAD, NOW).windows,
+    windows: normalizeOpencodeGoPayload(SUCCESS_PAYLOAD).windows,
     state: {
       status: "fresh",
       stale: false,
