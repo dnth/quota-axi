@@ -3,6 +3,7 @@ import {
   readCachedProvider as readCachedProviderFromDisk,
 } from "../cache.js";
 import { usableLiteralSecret } from "../lib/secret.js";
+import { parseEpochOrIso } from "../lib/time.js";
 import type {
   AuthProviderReport,
   AuthSourceReport,
@@ -653,7 +654,7 @@ export function normalizeOpencodeGoPayload(
     const resetsAt =
       typeof detail.resetsAt === "string" &&
       Number.isFinite(Date.parse(detail.resetsAt))
-        ? detail.resetsAt
+        ? parseEpochOrIso(detail.resetsAt)
         : undefined;
     if (
       percentUsed === undefined ||
@@ -729,6 +730,9 @@ function duplicateTopLevelJsonKeys(text: string): string[] {
   return [];
 }
 
+const JSON_SCALAR_PATTERN =
+  /(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/y;
+
 function skipJsonValue(text: string, start: number): number | undefined {
   let index = skipJsonWhitespace(text, start);
   if (text[index] === '"') return scanJsonString(text, index)?.next;
@@ -762,9 +766,8 @@ function skipJsonValue(text: string, start: number): number | undefined {
     }
     return undefined;
   }
-  const scalar = text
-    .slice(index)
-    .match(/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
+  JSON_SCALAR_PATTERN.lastIndex = index;
+  const scalar = JSON_SCALAR_PATTERN.exec(text);
   return scalar ? index + scalar[0].length : undefined;
 }
 

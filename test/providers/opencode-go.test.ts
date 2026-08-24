@@ -137,6 +137,22 @@ describe("OpenCode Go usage normalization", () => {
     expect(monthly.startsAt).toBeUndefined();
   });
 
+  it("canonicalizes a non-ISO resetsAt to an ISO timestamp", () => {
+    const normalized = normalizeOpencodeGoPayload({
+      ...SUCCESS_PAYLOAD,
+      usage: {
+        ...SUCCESS_PAYLOAD.usage,
+        monthly: {
+          status: "ok",
+          percent: 40,
+          resetsAt: "Sat, 12 Sep 2026 12:00:00 GMT",
+        },
+      },
+    });
+
+    expect(normalized.windows[2]?.resetsAt).toBe("2026-09-12T12:00:00.000Z");
+  });
+
   it("keeps valid windows but marks missing or unfamiliar usage conservatively", () => {
     const normalized = normalizeOpencodeGoPayload({
       ...SUCCESS_PAYLOAD,

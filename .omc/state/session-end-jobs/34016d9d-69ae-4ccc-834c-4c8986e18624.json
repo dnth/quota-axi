@@ -3,9 +3,9 @@
   "jobId": "4d61495b-45bd-42d8-a49b-e0858c5cbadd",
   "sessionId": "34016d9d-69ae-4ccc-834c-4c8986e18624",
   "scopeKey": "f66c7791b46ce49190412dc6a66f478a288241b8c523638df819949724641541",
-  "revision": 13,
+  "revision": 42,
   "createdAt": "2026-08-24T13:49:05.697Z",
-  "updatedAt": "2026-08-24T13:49:06.024Z",
+  "updatedAt": "2026-08-24T13:55:30.193Z",
   "producerGraceExpiresAt": "2026-08-24T13:49:35.697Z",
   "bestEffortDeadlineAt": "2026-08-24T13:50:26.697Z",
   "producers": {
@@ -138,7 +138,7 @@
     "python-cleanup": {
       "class": "required",
       "phase": "deferred-required",
-      "status": "claimed",
+      "status": "completed",
       "attempts": 1,
       "idempotencyKey": "86fa759a2f8837914d05c339b0f5a28cb71bc8580b24be8e05645cf5c75d53da",
       "payload": {
@@ -166,20 +166,21 @@
         "openClawRouting": {}
       },
       "budgetMs": 9000,
-      "claimantNonce": "ed3bb542-8ddf-4f6f-8bd2-ae9beec2e2c9",
       "claimedAt": "2026-08-24T13:49:06.008Z",
       "runner": {
         "attempt": 1,
         "runnerNonce": "b7198b9c-08cb-48ba-b217-7771bbab5262",
-        "phase": "armed",
+        "phase": "terminal",
         "deadlineAt": "2026-08-24T13:49:15.797Z"
-      }
+      },
+      "lastOutcomeCode": "completed",
+      "completedAt": "2026-08-24T13:49:06.187Z"
     },
     "reply-cleanup": {
       "class": "required",
       "phase": "deferred-required",
-      "status": "pending",
-      "attempts": 0,
+      "status": "completed",
+      "attempts": 1,
       "idempotencyKey": "f14c6fefe0cdc72adcff2568c22304d96b50fc9810eccfc71961df1005fefeb8",
       "payload": {
         "transcriptPath": "/home/dnth/.claude/projects/-home-dnth--no-mistakes-worktrees-be3757c0b7b1-01M0SZV1JESDAXTP9JPW1XJ19Y/34016d9d-69ae-4ccc-834c-4c8986e18624.jsonl",
@@ -205,13 +206,22 @@
         "openClawEnabled": false,
         "openClawRouting": {}
       },
-      "budgetMs": 9000
+      "budgetMs": 9000,
+      "claimedAt": "2026-08-24T13:49:06.191Z",
+      "runner": {
+        "attempt": 1,
+        "runnerNonce": "343c8a1f-cdb7-4c62-8725-b042f3341370",
+        "phase": "terminal",
+        "deadlineAt": "2026-08-24T13:49:15.797Z"
+      },
+      "lastOutcomeCode": "completed",
+      "completedAt": "2026-08-24T13:49:06.346Z"
     },
     "callback": {
       "class": "best-effort",
       "phase": "deferred-best-effort",
-      "status": "pending",
-      "attempts": 0,
+      "status": "completed",
+      "attempts": 1,
       "idempotencyKey": "54617928de1be9bbcbe9d5b51e5c9fe4ef87b5ce72d68a732132f8ff04f145c5",
       "payload": {
         "transcriptPath": "/home/dnth/.claude/projects/-home-dnth--no-mistakes-worktrees-be3757c0b7b1-01M0SZV1JESDAXTP9JPW1XJ19Y/34016d9d-69ae-4ccc-834c-4c8986e18624.jsonl",
@@ -237,13 +247,22 @@
         "openClawEnabled": false,
         "openClawRouting": {}
       },
-      "budgetMs": 2000
+      "budgetMs": 2000,
+      "claimedAt": "2026-08-24T13:49:06.350Z",
+      "runner": {
+        "attempt": 1,
+        "runnerNonce": "5464910a-88fd-4ce2-9b7a-33aa3f343ba6",
+        "phase": "terminal",
+        "deadlineAt": "2026-08-24T13:49:15.797Z"
+      },
+      "lastOutcomeCode": "completed",
+      "completedAt": "2026-08-24T13:49:06.489Z"
     },
     "notification": {
       "class": "best-effort",
       "phase": "deferred-best-effort",
-      "status": "pending",
-      "attempts": 0,
+      "status": "completed",
+      "attempts": 1,
       "idempotencyKey": "bceae940cc750f37a0e156ae56f454bf2a269776861e847150bb2c4f3d242c53",
       "payload": {
         "transcriptPath": "/home/dnth/.claude/projects/-home-dnth--no-mistakes-worktrees-be3757c0b7b1-01M0SZV1JESDAXTP9JPW1XJ19Y/34016d9d-69ae-4ccc-834c-4c8986e18624.jsonl",
@@ -269,13 +288,22 @@
         "openClawEnabled": false,
         "openClawRouting": {}
       },
-      "budgetMs": 2000
+      "budgetMs": 2000,
+      "claimedAt": "2026-08-24T13:49:06.492Z",
+      "runner": {
+        "attempt": 1,
+        "runnerNonce": "d27c2830-cdad-4ecf-b974-b836064529fe",
+        "phase": "terminal",
+        "deadlineAt": "2026-08-24T13:49:15.797Z"
+      },
+      "lastOutcomeCode": "completed",
+      "completedAt": "2026-08-24T13:49:06.631Z"
     },
     "openclaw": {
       "class": "best-effort",
       "phase": "deferred-best-effort",
-      "status": "pending",
-      "attempts": 0,
+      "status": "completed",
+      "attempts": 1,
       "idempotencyKey": "f43a09a3187ce37ad79f90664288b82f24f2a11dc2024725719398fd7441f8ac",
       "payload": {
         "transcriptPath": "/home/dnth/.claude/projects/-home-dnth--no-mistakes-worktrees-be3757c0b7b1-01M0SZV1JESDAXTP9JPW1XJ19Y/34016d9d-69ae-4ccc-834c-4c8986e18624.jsonl",
@@ -301,19 +329,23 @@
         "openClawEnabled": false,
         "openClawRouting": {}
       },
-      "budgetMs": 2000
+      "budgetMs": 2000,
+      "claimedAt": "2026-08-24T13:49:06.635Z",
+      "runner": {
+        "attempt": 1,
+        "runnerNonce": "79026cf3-ff34-4d99-aad8-018576f431b9",
+        "phase": "terminal",
+        "deadlineAt": "2026-08-24T13:49:15.797Z"
+      },
+      "lastOutcomeCode": "completed",
+      "completedAt": "2026-08-24T13:49:06.777Z"
     }
   },
-  "owner": {
-    "nonce": "ed3bb542-8ddf-4f6f-8bd2-ae9beec2e2c9",
-    "pid": 1428117,
-    "processStartIdentity": "45808423",
-    "claimedAt": "2026-08-24T13:49:05.803Z",
-    "heartbeatAt": "2026-08-24T13:49:06.011Z",
-    "leaseExpiresAt": "2026-08-24T13:49:06.761Z",
-    "runDeadlineAt": "2026-08-24T13:49:15.797Z",
-    "leaseGeneration": 4,
-    "claimedFromRevision": 2
-  },
-  "phase": "processing"
+  "owner": null,
+  "phase": "complete",
+  "completion": {
+    "completedAt": "2026-08-24T13:49:06.781Z",
+    "terminalDigest": "df265ac58fa795d22b7b9dedc25bab9db1adc466bb628007b1f559e3886914e8",
+    "terminalRevision": 40
+  }
 }
