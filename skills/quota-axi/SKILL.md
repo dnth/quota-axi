@@ -1,6 +1,6 @@
 ---
 name: quota-axi
-description: "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, and Antigravity quota windows via the quota-axi CLI - remaining effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, a per-scope selection signal, and provider status read from local auth sources, with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing local provider headroom."
+description: "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, OpenCode Go, and Antigravity quota windows via the quota-axi CLI - remaining effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, a per-scope selection signal, and provider status read from local auth sources, with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing local provider headroom."
 user-invocable: false
 author: Kun Chen (kunchenguid)
 metadata:
@@ -16,6 +16,7 @@ metadata:
       - grok
       - kimi
       - zai
+      - opencode-go
       - agy
       - antigravity
       - cli
@@ -24,7 +25,7 @@ metadata:
 
 # quota-axi
 
-Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, and Antigravity quota windows.
+Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, OpenCode Go, and Antigravity quota windows.
 quota-axi is data only: it never routes, recommends, ranks, or mutates provider state.
 
 Use it when you need local quota headroom before deciding whether it is safe to keep spending a

@@ -1,17 +1,7 @@
-// Endpoint behavior and auth discovery derived from opencode-glm-quota
-// (c) guyinwonder168, MIT, https://github.com/guyinwonder168/opencode-glm-quota
-// and the vendor plugin zai-org/zai-coding-plugins. No third-party code is
-// vendored here; the HTTP layer and normalization are an original implementation.
-
 import {
   deleteCachedProvider as deleteCachedProviderFromDisk,
   readCachedProvider as readCachedProviderFromDisk,
 } from "../cache.js";
-import {
-  opencodeAuthFilePath,
-  OPENCODE_AUTH_SOURCE,
-  readOpencodeAuthFile,
-} from "./opencode-auth.js";
 import { usableLiteralSecret } from "../lib/secret.js";
 import type {
   AuthProviderReport,
@@ -24,57 +14,48 @@ import type {
   SourceAttempt,
 } from "../types.js";
 import { VERSION } from "../version.js";
-export { opencodeAuthFilePath };
-const ZAI_QUOTA_PATH = "/api/monitor/usage/quota/limit";
+import {
+  OPENCODE_AUTH_SOURCE,
+  opencodeAuthFilePath,
+  readOpencodeAuthFile,
+} from "./opencode-auth.js";
+
+const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 const OPERATION_DEADLINE_MS = 15_000;
 const RESPONSE_LIMIT_BYTES = 262_144;
 const FIVE_HOURS_SECONDS = 18_000;
 const WEEK_SECONDS = 7 * 24 * 60 * 60;
-const MONTH_SECONDS = 30 * 24 * 60 * 60;
-const ZAI_HOST = "api.z.ai";
-const ZHIPU_HOST = "open.bigmodel.cn";
 const USER_AGENT = `quota-axi/${VERSION}`;
-
-const ZAI_PROVIDER_IDS = ["zai-coding-plan", "zai", "z-ai", "z.ai"];
-const ZHIPU_PROVIDER_IDS = ["zhipu", "zhipuai"];
-const CREDENTIAL_KEYS = [
-  "key",
-  "apiKey",
-  "api_key",
-  "token",
-  "accessToken",
-  "auth_token",
-];
-
-export type ZaiDiagnostic =
-  | { code: "entry_invalid"; index: number }
-  | { code: "entry_unrecognized"; index: number };
-
-export type NormalizedZaiPayload = {
-  windows: QuotaWindow[];
-  plan?: string;
-  diagnostics: ZaiDiagnostic[];
+export type OpencodeGoDiagnostic = {
+  windowId: string;
+  code: "usage_missing" | "usage_invalid" | "usage_not_ok";
 };
 
-export type ZaiCredentialResolution =
-  | { status: "available"; apiKey: string; host: string; path: string }
+export type NormalizedOpencodeGoPayload = {
+  windows: QuotaWindow[];
+  diagnostics: OpencodeGoDiagnostic[];
+  useBalance?: boolean;
+};
+
+export type OpencodeGoCredentialResolution =
+  | { status: "available"; apiKey: string; path: string }
   | { status: "missing"; path: string }
   | { status: "invalid"; path: string; error: string }
   | { status: "error"; path: string; error: string };
 
-export type ZaiCredentialInspection =
+export type OpencodeGoCredentialInspection =
   | { status: "available"; path: string }
   | { status: "missing"; path: string }
   | { status: "invalid"; path: string; error: string }
   | { status: "error"; path: string; error: string };
 
-export type ZaiCredentialSource = {
-  resolve(): ZaiCredentialResolution;
-  inspect(): ZaiCredentialInspection;
+export type OpencodeGoCredentialSource = {
+  resolve(): OpencodeGoCredentialResolution;
+  inspect(): OpencodeGoCredentialInspection;
 };
 
-type ZaiDependencies = {
-  credentialSource: ZaiCredentialSource;
+export type OpencodeGoDependencies = {
+  credentialSource: OpencodeGoCredentialSource;
   fetch: typeof globalThis.fetch;
   readCachedProvider: typeof readCachedProviderFromDisk;
   deleteCachedProvider: typeof deleteCachedProviderFromDisk;
@@ -82,7 +63,7 @@ type ZaiDependencies = {
   deadlineMs: number;
 };
 
-type ZaiFailureOptions = {
+type OpencodeGoFailureOptions = {
   status?: ProviderStatus;
   staleEligible?: boolean;
   definitiveAuth?: boolean;
@@ -94,38 +75,43 @@ type ResponseBodyLifetime = {
   cancel(action?: () => Promise<unknown> | undefined): Promise<void>;
 };
 
-export function extractZaiCredential(
+export function extractOpencodeGoCredential(
   value: unknown,
   path: string,
-): ZaiCredentialResolution {
-  const data = objectValue(value);
-  if (!data) return { status: "invalid", path, error: "json_parse_error" };
-  for (const providerId of [...ZAI_PROVIDER_IDS, ...ZHIPU_PROVIDER_IDS]) {
-    const entry = data[providerId];
-    if (entry === undefined || entry === null) continue;
-    const host = ZAI_PROVIDER_IDS.includes(providerId) ? ZAI_HOST : ZHIPU_HOST;
-    const key = extractKey(entry);
-    if (key) return { status: "available", apiKey: key, host, path };
+): OpencodeGoCredentialResolution {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { status: "invalid", path, error: "json_parse_error" };
   }
-  return { status: "missing", path };
+  const entry = (value as Record<string, unknown>)["opencode-go"];
+  if (entry === undefined || entry === null) return { status: "missing", path };
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    return { status: "invalid", path, error: "opencode_go_credential_invalid" };
+  }
+  const record = entry as Record<string, unknown>;
+  const apiKey = usableLiteralSecret(record.key);
+  if (record.type !== "api" || apiKey === undefined) {
+    return { status: "invalid", path, error: "opencode_go_credential_invalid" };
+  }
+  return { status: "available", apiKey, path };
 }
 
-export function createOpencodeAuthCredentialSource(
+export function createOpencodeGoCredentialSource(
   filePath: () => string = opencodeAuthFilePath,
-): ZaiCredentialSource {
-  function resolve(): ZaiCredentialResolution {
+): OpencodeGoCredentialSource {
+  function resolve(): OpencodeGoCredentialResolution {
     const path = filePath();
     const result = readOpencodeAuthFile(path);
     if (result.status === "missing") return { status: "missing", path };
-    if (result.status === "invalid")
+    if (result.status === "invalid") {
       return result.error === "file_read_error"
         ? { status: "error", path, error: result.error }
         : { status: "invalid", path, error: result.error };
-    return extractZaiCredential(result.value, path);
+    }
+    return extractOpencodeGoCredential(result.value, path);
   }
   return {
     resolve,
-    inspect(): ZaiCredentialInspection {
+    inspect(): OpencodeGoCredentialInspection {
       const resolution = resolve();
       if (resolution.status === "available")
         return { status: "available", path: resolution.path };
@@ -134,11 +120,11 @@ export function createOpencodeAuthCredentialSource(
   };
 }
 
-export function createZaiAdapter(
-  overrides: Partial<ZaiDependencies> = {},
+export function createOpencodeGoAdapter(
+  overrides: Partial<OpencodeGoDependencies> = {},
 ): ProviderAdapter {
-  const dependencies: ZaiDependencies = {
-    credentialSource: createOpencodeAuthCredentialSource(),
+  const dependencies: OpencodeGoDependencies = {
+    credentialSource: createOpencodeGoCredentialSource(),
     fetch: globalThis.fetch,
     readCachedProvider: readCachedProviderFromDisk,
     deleteCachedProvider: deleteCachedProviderFromDisk,
@@ -149,11 +135,11 @@ export function createZaiAdapter(
   let inFlight: Promise<ProviderQuota> | undefined;
 
   return {
-    id: "zai",
-    label: "Z.AI",
+    id: "opencode-go",
+    label: "OpenCode Go",
     fetchQuota(_options: ProviderOptions): Promise<ProviderQuota> {
       if (inFlight) return inFlight;
-      const acquisition = acquireZaiQuota(dependencies).finally(() => {
+      const acquisition = acquireOpencodeGoQuota(dependencies).finally(() => {
         if (inFlight === acquisition) inFlight = undefined;
       });
       inFlight = acquisition;
@@ -169,15 +155,15 @@ export function createZaiAdapter(
           ? { error: inspection.error }
           : {}),
       };
-      return { provider: "zai", sources: [source] };
+      return { provider: "opencode-go", sources: [source] };
     },
   };
 }
 
-export const zaiAdapter = createZaiAdapter();
+export const opencodeGoAdapter = createOpencodeGoAdapter();
 
-async function acquireZaiQuota(
-  dependencies: ZaiDependencies,
+async function acquireOpencodeGoQuota(
+  dependencies: OpencodeGoDependencies,
 ): Promise<ProviderQuota> {
   const controller = new AbortController();
   const deadline = setTimeout(
@@ -189,10 +175,9 @@ async function acquireZaiQuota(
   try {
     const resolution = dependencies.credentialSource.resolve();
     attempts = [{ source: OPENCODE_AUTH_SOURCE, status: "failed" }];
-
     if (resolution.status !== "available") {
       const failure = credentialFailureFor(resolution);
-      attempts[attempts.length - 1] = {
+      attempts[0] = {
         source: OPENCODE_AUTH_SOURCE,
         status: resolution.status === "missing" ? "skipped" : "failed",
         error: failure.code,
@@ -200,27 +185,23 @@ async function acquireZaiQuota(
       return failureReport(failure, attempts, dependencies);
     }
 
-    const payload = await requestZaiQuota(
+    const payload = await requestOpencodeGoUsage(
       resolution.apiKey,
-      resolution.host,
       controller.signal,
       dependencies.fetch,
       dependencies.now,
     );
-    const normalized = normalizeZaiPayload(payload);
+    const normalized = normalizeOpencodeGoPayload(payload, dependencies.now());
     const untrustedWindowIds = normalized.diagnostics.map(
-      (diagnostic) => `limit:${diagnostic.index}`,
+      ({ windowId }) => windowId,
     );
     const refreshedAt = new Date(dependencies.now()).toISOString();
-    attempts[attempts.length - 1] = {
-      source: OPENCODE_AUTH_SOURCE,
-      status: "success",
-    };
+    attempts[0] = { source: OPENCODE_AUTH_SOURCE, status: "success" };
     return {
-      provider: "zai",
-      label: "Z.AI",
+      provider: "opencode-go",
+      label: "OpenCode Go",
       source: "api",
-      ...(normalized.plan ? { plan: normalized.plan } : {}),
+      plan: "go",
       windows: normalized.windows,
       state: {
         status: "fresh",
@@ -233,9 +214,9 @@ async function acquireZaiQuota(
     };
   } catch (error) {
     const failure =
-      error instanceof ZaiFailure
+      error instanceof OpencodeGoFailure
         ? error
-        : new ZaiFailure("credential_resolution_failed", {
+        : new OpencodeGoFailure("credential_resolution_failed", {
             staleEligible: true,
           });
     if (attempts.length === 0) {
@@ -247,8 +228,8 @@ async function acquireZaiQuota(
         },
       ];
     } else {
-      attempts[attempts.length - 1] = {
-        source: attempts[attempts.length - 1].source,
+      attempts[0] = {
+        source: OPENCODE_AUTH_SOURCE,
         status: "failed",
         error: failure.code,
       };
@@ -260,43 +241,43 @@ async function acquireZaiQuota(
 }
 
 function credentialFailureFor(
-  resolution: Exclude<ZaiCredentialResolution, { status: "available" }>,
-): ZaiFailure {
+  resolution: Exclude<OpencodeGoCredentialResolution, { status: "available" }>,
+): OpencodeGoFailure {
   if (resolution.status === "missing") {
-    return new ZaiFailure("zai_credential_unavailable", {
+    return new OpencodeGoFailure("opencode_go_credential_unavailable", {
       status: "auth_required",
       definitiveAuth: true,
     });
   }
-  if (resolution.status === "error") {
-    return new ZaiFailure("credential_resolution_failed", {
-      staleEligible: true,
+  if (resolution.status === "invalid") {
+    return new OpencodeGoFailure(resolution.error, {
+      status: "auth_required",
+      definitiveAuth: true,
     });
   }
-  return new ZaiFailure("zai_credential_invalid", {
-    status: "auth_required",
-    definitiveAuth: true,
+  return new OpencodeGoFailure("credential_resolution_failed", {
+    staleEligible: true,
   });
 }
 
 function failureReport(
-  failure: ZaiFailure,
+  failure: OpencodeGoFailure,
   attempts: SourceAttempt[],
-  dependencies: ZaiDependencies,
+  dependencies: OpencodeGoDependencies,
 ): ProviderQuota {
   if (failure.definitiveAuth) {
     try {
-      dependencies.deleteCachedProvider("zai");
+      dependencies.deleteCachedProvider("opencode-go");
     } catch {
-      // The current auth failure is still definitive even if the cache is not writable.
+      // A definitive current auth result still stands if cache cleanup fails.
     }
   }
 
   if (failure.staleEligible) {
     try {
-      const cached = dependencies.readCachedProvider("zai");
+      const cached = dependencies.readCachedProvider("opencode-go");
       const stale = cached
-        ? staleZaiReport(
+        ? staleOpencodeGoReport(
             cached,
             failure.code,
             failure.retryAfter,
@@ -311,9 +292,10 @@ function failureReport(
   }
 
   return {
-    provider: "zai",
-    label: "Z.AI",
+    provider: "opencode-go",
+    label: "OpenCode Go",
     source: "unavailable",
+    plan: "go",
     windows: [],
     state: {
       status: failure.status,
@@ -326,7 +308,7 @@ function failureReport(
   };
 }
 
-function staleZaiReport(
+function staleOpencodeGoReport(
   cached: ProviderQuota,
   error: string,
   retryAfter: string | undefined,
@@ -334,7 +316,7 @@ function staleZaiReport(
   now: number,
 ): ProviderQuota | undefined {
   if (
-    cached.provider !== "zai" ||
+    cached.provider !== "opencode-go" ||
     cached.source !== "api" ||
     cached.state.status !== "fresh" ||
     !cached.state.refreshedAt
@@ -348,17 +330,20 @@ function staleZaiReport(
     if (window.resetsAt) {
       const resetsAt = Date.parse(window.resetsAt);
       if (Number.isFinite(resetsAt)) return resetsAt > now;
+      return false;
     }
-    const maxAgeSeconds = maxStaleAgeSeconds(window);
-    return maxAgeSeconds > 0 && ageMilliseconds < maxAgeSeconds * 1_000;
+    if (window.id === "five_hour")
+      return ageMilliseconds < FIVE_HOURS_SECONDS * 1_000;
+    if (window.id === "weekly") return ageMilliseconds < WEEK_SECONDS * 1_000;
+    return false;
   });
   if (windows.length === 0) return undefined;
 
   return {
-    provider: "zai",
-    label: "Z.AI",
+    provider: "opencode-go",
+    label: "OpenCode Go",
     source: "cache",
-    ...(cached.plan ? { plan: cached.plan } : {}),
+    plan: "go",
     windows,
     state: {
       status: "stale",
@@ -375,24 +360,8 @@ function staleZaiReport(
   };
 }
 
-function maxStaleAgeSeconds(window: QuotaWindow): number {
-  if (window.windowSeconds !== undefined && window.windowSeconds > 0)
-    return window.windowSeconds;
-  switch (window.kind) {
-    case "session":
-      return FIVE_HOURS_SECONDS;
-    case "weekly":
-      return WEEK_SECONDS;
-    case "monthly":
-      return MONTH_SECONDS;
-    default:
-      return 0;
-  }
-}
-
-async function requestZaiQuota(
+async function requestOpencodeGoUsage(
   apiKey: string,
-  host: string,
   signal: AbortSignal,
   fetchImplementation: typeof globalThis.fetch,
   now: () => number,
@@ -400,12 +369,11 @@ async function requestZaiQuota(
   let response: Response;
   try {
     response = await waitForDeadline(
-      fetchImplementation(`https://${host}${ZAI_QUOTA_PATH}`, {
+      fetchImplementation(OPENCODE_GO_USAGE_URL, {
         method: "GET",
         headers: {
-          Authorization: apiKey,
+          Authorization: `Bearer ${apiKey}`,
           Accept: "application/json",
-          "Accept-Language": "en-US,en",
           "User-Agent": USER_AGENT,
         },
         credentials: "omit",
@@ -416,38 +384,56 @@ async function requestZaiQuota(
     );
   } catch (error) {
     if (signal.aborted || isAbortError(error)) {
-      throw new ZaiFailure("request_timeout", { staleEligible: true });
+      throw new OpencodeGoFailure("request_timeout", { staleEligible: true });
     }
-    throw new ZaiFailure(localTransportCode(error), { staleEligible: true });
+    throw new OpencodeGoFailure(localTransportCode(error), {
+      staleEligible: true,
+    });
   }
 
   const lifetime = createResponseBodyLifetime(response);
   try {
     const receivedAt = now();
     rejectHttpFailure(response, receivedAt);
+    const mediaType = response.headers
+      .get("content-type")
+      ?.split(";", 1)[0]
+      ?.trim()
+      .toLowerCase();
+    if (mediaType !== "application/json") {
+      throw new OpencodeGoFailure("unexpected_content_type", {
+        staleEligible: true,
+      });
+    }
 
     let bytes: Uint8Array;
     try {
       bytes = await readBoundedBody(response, signal, lifetime);
       lifetime.markConsumed();
     } catch (error) {
-      if (error instanceof ZaiFailure) throw error;
+      if (error instanceof OpencodeGoFailure) throw error;
       if (signal.aborted || isAbortError(error)) {
-        throw new ZaiFailure("request_timeout", { staleEligible: true });
+        throw new OpencodeGoFailure("request_timeout", {
+          staleEligible: true,
+        });
       }
-      throw new ZaiFailure("network_unavailable", { staleEligible: true });
+      throw new OpencodeGoFailure("network_unavailable", {
+        staleEligible: true,
+      });
     }
 
     let text: string;
     try {
       text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
-      throw new ZaiFailure("response_invalid_utf8");
+      throw new OpencodeGoFailure("response_invalid_utf8", {
+        staleEligible: true,
+      });
     }
     try {
       return JSON.parse(text) as unknown;
     } catch {
-      throw new ZaiFailure("malformed_json");
+      throw new OpencodeGoFailure("malformed_json", { staleEligible: true });
     }
   } finally {
     await lifetime.cancel();
@@ -458,19 +444,25 @@ function rejectHttpFailure(response: Response, receivedAt: number): void {
   const status = response.status;
   if (status === 200) return;
   if (status >= 300 && status <= 399) {
-    throw new ZaiFailure("redirect_rejected");
+    throw new OpencodeGoFailure("redirect_rejected");
   }
-  if (status === 401 || status === 403) {
-    throw new ZaiFailure("provider_auth_rejected", {
+  if (status === 401) {
+    throw new OpencodeGoFailure("provider_auth_rejected", {
       status: "auth_required",
       definitiveAuth: true,
     });
   }
+  if (status === 403) {
+    throw new OpencodeGoFailure("provider_entitlement_required", {
+      status: "auth_required",
+      staleEligible: true,
+    });
+  }
   if (status === 408) {
-    throw new ZaiFailure("provider_timeout", { staleEligible: true });
+    throw new OpencodeGoFailure("provider_timeout", { staleEligible: true });
   }
   if (status === 429) {
-    throw new ZaiFailure("provider_rate_limited", {
+    throw new OpencodeGoFailure("provider_rate_limited", {
       status: "rate_limited",
       staleEligible: true,
       retryAfter: normalizeRetryAfter(
@@ -480,9 +472,11 @@ function rejectHttpFailure(response: Response, receivedAt: number): void {
     });
   }
   if (status >= 500 && status <= 599) {
-    throw new ZaiFailure("provider_unavailable", { staleEligible: true });
+    throw new OpencodeGoFailure("provider_unavailable", {
+      staleEligible: true,
+    });
   }
-  throw new ZaiFailure("provider_request_rejected");
+  throw new OpencodeGoFailure("provider_request_rejected");
 }
 
 async function readBoundedBody(
@@ -493,7 +487,9 @@ async function readBoundedBody(
   const declaredLength = response.headers.get("content-length")?.trim();
   if (declaredLength && /^\d+$/.test(declaredLength)) {
     if (BigInt(declaredLength) > BigInt(RESPONSE_LIMIT_BYTES)) {
-      throw new ZaiFailure("response_too_large", { staleEligible: true });
+      throw new OpencodeGoFailure("response_too_large", {
+        staleEligible: true,
+      });
     }
   }
   if (!response.body) return new Uint8Array();
@@ -507,7 +503,9 @@ async function readBoundedBody(
       if (done) break;
       length += value.length;
       if (length > RESPONSE_LIMIT_BYTES) {
-        throw new ZaiFailure("response_too_large", { staleEligible: true });
+        throw new OpencodeGoFailure("response_too_large", {
+          staleEligible: true,
+        });
       }
       chunks.push(value);
     }
@@ -532,14 +530,16 @@ async function readBodyChunk(
   const cancelReader = () => lifetime.cancel(() => reader.cancel());
   if (signal.aborted) {
     await cancelReader();
-    throw new ZaiFailure("request_timeout", { staleEligible: true });
+    throw new OpencodeGoFailure("request_timeout", { staleEligible: true });
   }
   return new Promise((resolve, reject) => {
     let aborted = false;
     const abort = () => {
       aborted = true;
       cancelReader().then(() => {
-        reject(new ZaiFailure("request_timeout", { staleEligible: true }));
+        reject(
+          new OpencodeGoFailure("request_timeout", { staleEligible: true }),
+        );
       });
     };
     signal.addEventListener("abort", abort, { once: true });
@@ -577,185 +577,123 @@ function createResponseBodyLifetime(response: Response): ResponseBodyLifetime {
   };
 }
 
-export function normalizeZaiPayload(payload: unknown): NormalizedZaiPayload {
-  const root = objectValue(payload);
-  const data = objectValue(root?.data) ?? root;
-  const limitsValue = data?.limits;
-  if (!Array.isArray(limitsValue)) {
-    throw new ZaiFailure("schema_invalid");
+export function normalizeOpencodeGoPayload(
+  payload: unknown,
+  now: number = Date.now(),
+): NormalizedOpencodeGoPayload {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    throw new OpencodeGoFailure("schema_invalid", { staleEligible: true });
   }
-
+  const root = payload as Record<string, unknown>;
+  const diagnostics: OpencodeGoDiagnostic[] = [];
   const windows: QuotaWindow[] = [];
-  const diagnostics: ZaiDiagnostic[] = [];
-  const seenIds = new Set<string>();
-  for (const [offset, rawEntry] of limitsValue.entries()) {
-    const index = offset + 1;
-    const entry = objectValue(rawEntry);
-    if (!entry) {
-      diagnostics.push({ code: "entry_invalid", index });
+  const definitions = [
+    {
+      id: "five_hour" as const,
+      label: "5 hour",
+      kind: "session" as const,
+      seconds: FIVE_HOURS_SECONDS,
+      key: "rollingUsage",
+    },
+    {
+      id: "weekly" as const,
+      label: "week",
+      kind: "weekly" as const,
+      seconds: WEEK_SECONDS,
+      key: "weeklyUsage",
+    },
+    {
+      id: "monthly" as const,
+      label: "month",
+      kind: "monthly" as const,
+      seconds: undefined,
+      key: "monthlyUsage",
+    },
+  ];
+
+  for (const definition of definitions) {
+    const raw = root[definition.key];
+    if (raw === undefined || raw === null) {
+      diagnostics.push({ windowId: definition.id, code: "usage_missing" });
       continue;
     }
-    const mapped = mapLimitEntry(entry, index);
-    const duplicate = seenIds.has(mapped.window.id);
-    if (!mapped.recognized || duplicate) {
-      diagnostics.push({ code: "entry_unrecognized", index });
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      diagnostics.push({ windowId: definition.id, code: "usage_invalid" });
+      continue;
     }
-    const window = duplicate
-      ? unknownWindow(mapped.measurements, index)
-      : mapped.window;
-    seenIds.add(window.id);
-    windows.push(window);
+    const detail = raw as Record<string, unknown>;
+    if (detail.status !== "ok") {
+      diagnostics.push({ windowId: definition.id, code: "usage_not_ok" });
+      continue;
+    }
+    const resetInSec = numericScalar(detail.resetInSec);
+    const usagePercent = numericScalar(detail.usagePercent);
+    const resetAtMilliseconds =
+      resetInSec === undefined ? undefined : now + resetInSec * 1_000;
+    if (
+      resetInSec === undefined ||
+      resetInSec <= 0 ||
+      resetAtMilliseconds === undefined ||
+      !Number.isFinite(resetAtMilliseconds) ||
+      Math.abs(resetAtMilliseconds) > 8.64e15 ||
+      usagePercent === undefined ||
+      usagePercent < 0 ||
+      usagePercent > 100
+    ) {
+      diagnostics.push({ windowId: definition.id, code: "usage_invalid" });
+      continue;
+    }
+    const resetsAt = new Date(resetAtMilliseconds).toISOString();
+    windows.push({
+      id: definition.id,
+      label: definition.label,
+      kind: definition.kind,
+      percentUsed: usagePercent,
+      percentRemaining: 100 - usagePercent,
+      resetsAt,
+      ...(definition.seconds !== undefined
+        ? { windowSeconds: definition.seconds }
+        : {}),
+    });
+  }
+  for (const key of Object.keys(root)) {
+    if (
+      /usage$/i.test(key) &&
+      !definitions.some(({ key: knownKey }) => knownKey === key)
+    ) {
+      diagnostics.push({
+        windowId: `unknown:${key}`,
+        code: "usage_invalid",
+      });
+    }
   }
 
   if (windows.length === 0) {
-    throw new ZaiFailure("schema_invalid");
+    throw new OpencodeGoFailure("schema_invalid", { staleEligible: true });
   }
-  const plan = stringValue(data?.level);
+  const useBalance =
+    typeof root.useBalance === "boolean" ? root.useBalance : undefined;
   return {
     windows,
-    ...(plan ? { plan } : {}),
     diagnostics,
+    ...(useBalance === undefined ? {} : { useBalance }),
   };
-}
-
-type WindowMeasurements = {
-  percentUsed?: number;
-  percentRemaining?: number;
-  resetsAt?: string;
-};
-
-type MappedEntry = {
-  window: QuotaWindow;
-  measurements: WindowMeasurements;
-  recognized: boolean;
-};
-
-function unknownWindow(
-  measurements: WindowMeasurements,
-  index: number,
-): QuotaWindow {
-  return {
-    id: `limit:${index}`,
-    label: `limit ${index}`,
-    kind: "unknown",
-    ...measurements,
-  };
-}
-
-function mapLimitEntry(
-  entry: Record<string, unknown>,
-  index: number,
-): MappedEntry {
-  const type = typeof entry.type === "string" ? entry.type : undefined;
-  const unit = numericScalar(entry.unit);
-  const number = numericScalar(entry.number);
-  const percentUsed = resolvePercentUsed(entry);
-  const percentRemaining =
-    percentUsed !== undefined ? clampPercent(100 - percentUsed) : undefined;
-  const resetsAt = resolveResetsAt(entry.nextResetTime);
-
-  const identity = identifyWindow(type, unit, number);
-  const measurements: WindowMeasurements = {
-    ...(percentUsed !== undefined ? { percentUsed } : {}),
-    ...(percentRemaining !== undefined ? { percentRemaining } : {}),
-    ...(resetsAt ? { resetsAt } : {}),
-  };
-
-  if (identity) {
-    return {
-      recognized: true,
-      measurements,
-      window: {
-        id: identity.id,
-        label: identity.label,
-        kind: identity.kind,
-        ...measurements,
-        ...(identity.windowSeconds !== undefined
-          ? { windowSeconds: identity.windowSeconds }
-          : {}),
-      },
-    };
-  }
-
-  return {
-    recognized: false,
-    measurements,
-    window: unknownWindow(measurements, index),
-  };
-}
-
-function identifyWindow(
-  type: string | undefined,
-  unit: number | undefined,
-  number: number | undefined,
-):
-  | {
-      id: string;
-      label: string;
-      kind: QuotaWindow["kind"];
-      windowSeconds?: number;
-    }
-  | undefined {
-  if (type === "TOKENS_LIMIT" && unit === 3 && number === 5) {
-    return {
-      id: "five_hour",
-      label: "session",
-      kind: "session",
-      windowSeconds: FIVE_HOURS_SECONDS,
-    };
-  }
-  if (type === "TOKENS_LIMIT" && unit === 6 && number === 1) {
-    return {
-      id: "weekly",
-      label: "week",
-      kind: "weekly",
-      windowSeconds: WEEK_SECONDS,
-    };
-  }
-  if (type === "TIME_LIMIT") {
-    return { id: "mcp_month", label: "MCP month", kind: "monthly" };
-  }
-  return undefined;
-}
-
-function resolvePercentUsed(
-  entry: Record<string, unknown>,
-): number | undefined {
-  const percentage = numericScalar(entry.percentage);
-  if (percentage !== undefined) return clampPercent(percentage);
-  const currentValue = numericScalar(entry.currentValue);
-  const usage = numericScalar(entry.usage);
-  if (usage !== undefined && usage > 0 && currentValue !== undefined) {
-    return clampPercent((currentValue / usage) * 100);
-  }
-  return undefined;
-}
-
-function resolveResetsAt(value: unknown): string | undefined {
-  const epochMs = numericScalar(value);
-  if (epochMs === undefined || !Number.isFinite(epochMs)) return undefined;
-  try {
-    return new Date(epochMs).toISOString();
-  } catch {
-    return undefined;
-  }
 }
 
 function numericScalar(value: unknown): number | undefined {
-  if (typeof value === "number") {
+  if (typeof value === "number")
     return Number.isFinite(value) ? value : undefined;
-  }
   if (typeof value !== "string") return undefined;
-  const trimmed = value.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, "");
-  if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(trimmed)) {
+  const trimmed = value.trim();
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(trimmed)) {
     return undefined;
   }
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function clampPercent(value: number): number {
-  return Math.min(100, Math.max(0, value));
 }
 
 export function normalizeRetryAfter(
@@ -775,25 +713,9 @@ export function normalizeRetryAfter(
       return undefined;
     }
   }
-  if (!/^[A-Za-z]/.test(raw)) return undefined;
-  const parsed = Date.parse(raw);
-  if (!Number.isFinite(parsed)) return undefined;
-  try {
-    return new Date(parsed).toISOString();
-  } catch {
-    return undefined;
-  }
-}
-
-function extractKey(entry: unknown): string | undefined {
-  if (typeof entry === "string") return usableLiteralSecret(entry);
-  const obj = objectValue(entry);
-  if (!obj) return undefined;
-  for (const key of CREDENTIAL_KEYS) {
-    const value = usableLiteralSecret(obj[key]);
-    if (value !== undefined) return value;
-  }
-  return undefined;
+  const instant = Date.parse(raw);
+  if (!Number.isFinite(instant)) return undefined;
+  return new Date(instant).toISOString();
 }
 
 function localTransportCode(
@@ -806,16 +728,6 @@ function localTransportCode(
     : "network_unavailable";
 }
 
-function objectValue(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
@@ -826,12 +738,12 @@ function waitForDeadline<T>(
 ): Promise<T> {
   if (signal.aborted) {
     return Promise.reject(
-      new ZaiFailure("request_timeout", { staleEligible: true }),
+      new OpencodeGoFailure("request_timeout", { staleEligible: true }),
     );
   }
   return new Promise<T>((resolve, reject) => {
     const abort = () =>
-      reject(new ZaiFailure("request_timeout", { staleEligible: true }));
+      reject(new OpencodeGoFailure("request_timeout", { staleEligible: true }));
     signal.addEventListener("abort", abort, { once: true });
     promise.then(
       (value) => {
@@ -846,14 +758,20 @@ function waitForDeadline<T>(
   });
 }
 
-class ZaiFailure extends Error {
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+class OpencodeGoFailure extends Error {
   readonly code: string;
   readonly status: ProviderStatus;
   readonly staleEligible: boolean;
   readonly definitiveAuth: boolean;
   readonly retryAfter?: string;
 
-  constructor(code: string, options: ZaiFailureOptions = {}) {
+  constructor(code: string, options: OpencodeGoFailureOptions = {}) {
     super(code);
     this.code = code;
     this.status = options.status ?? "error";
