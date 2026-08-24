@@ -376,6 +376,7 @@ An unknown or stale scope deliberately gets **no** `quota[]` row: the absence of
 | Demoted to `--full` in `--json`                                                                                                       |
 | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `providers[].label`, `providers[].source`                                                                                             |
+| `providers[].useBalance` (OpenCode Go)                                                                                                |
 | `state.refreshedAt`, `state.sourcesTried`                                                                                             |
 | `windows[].percentUsed`, `windows[].startsAt`, `windows[].windowSeconds`                                                              |
 | `windows[].pace.timeRemainingPercent`, `elapsedPercent`, `cycleBasis`, `cycleSeconds`, `projectedExhaustedAt`, `projectionConfidence` |
@@ -389,12 +390,12 @@ Everything a consumer branches on stays in the default tier: `state.status`, `st
 
 ### Quota report shape
 
-| Object                        | Fields                                                                                    |
-| ----------------------------- | ----------------------------------------------------------------------------------------- |
-| Quota report                  | `providers`                                                                               |
-| Provider report               | `provider`, `windows`, `quotaSemantics`, `state`, optional `plan`, and optional `credits` |
-| Provider report with `--full` | Also `label`, `source`, optional `account` identity, and per-source `attempts`            |
-| Account identity (`--full`)   | Optional `email`, `organization`, `accountId`, and `identityStatus`                       |
+| Object                        | Fields                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Quota report                  | `providers`                                                                                                       |
+| Provider report               | `provider`, `windows`, `quotaSemantics`, `state`, optional `plan`, and optional `credits`                         |
+| Provider report with `--full` | Also `label`, `source`, optional OpenCode Go `useBalance`, optional `account` identity, and per-source `attempts` |
+| Account identity (`--full`)   | Optional `email`, `organization`, `accountId`, and `identityStatus`                                               |
 
 Account identity and per-source `attempts` are omitted unless `--full` is passed.
 Claude `identityStatus` is `verified` only when Anthropic returns an authoritative account identifier; `email` and `organization` are display-only and must not be used for duplicate detection.
@@ -572,7 +573,7 @@ Source attempts can include `credentialPresent` when a non-secret probe confirms
 
 ### Model catalog and `models`
 
-`quota-axi models [--intelligence high|medium|low] [--sort runway] [--provider ...] [--json|--full]` joins a reviewed catalog of native Claude, Codex, Grok, and Kimi models to the provider's effective quota evidence. It queries those four catalog-backed providers by default and accepts only those providers in an explicit models scope. Cursor and Copilot are excluded from this first catalog because their hosted model availability is plan-dependent; Copilot's quota relationships are also currently unknown. Z.AI and Antigravity report quota but have no reviewed catalog entries yet, so they are not `models` providers either.
+`quota-axi models [--intelligence high|medium|low] [--sort runway] [--provider ...] [--json|--full]` joins a reviewed catalog of native Claude, Codex, Grok, and Kimi models to the provider's effective quota evidence. It queries those four catalog-backed providers by default and accepts only those providers in an explicit models scope. Cursor and Copilot are excluded from this first catalog because their hosted model availability is plan-dependent; Copilot's quota relationships are also currently unknown. Z.AI, OpenCode Go, and Antigravity report quota but have no reviewed catalog entries yet, so they are not `models` providers either.
 
 Catalog buckets are coarse editorial classifications relative to the current frontier, not scores. They are curated from public provider material and public leaderboards, including [Artificial Analysis](https://artificialanalysis.ai/) as an informing source. quota-axi does not reproduce Artificial Analysis scores, has no runtime Artificial Analysis dependency, and never commits an Artificial Analysis key. `scripts/refresh-model-kb.ts` is a maintainer-only review aid: it may use a private `AA_API_KEY` to suggest changes, but it never writes the catalog.
 
@@ -678,7 +679,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 - It reads OpenCode's local `auth.json` (`$XDG_DATA_HOME/opencode/auth.json` when set, otherwise `~/.local/share/opencode/auth.json`; `%LOCALAPPDATA%\opencode\auth.json` on Windows) read-only and accepts only the `opencode-go` entry with `type: "api"` and a nonempty, control-byte-free literal `key`. Environment, template, and command references are not resolved or executed.
 - It sends one redirect-disabled `GET` to `https://opencode.ai/zen/go/v1/usage` with `Authorization: Bearer <key>`, a 15 second total deadline, and a 262,144-byte decoded-body cap. It requires JSON and does not scrape the dashboard, open a browser, send cookies, or launch OpenCode.
 - HTTP 401 is an invalid/auth-required credential result and retires the cached Go snapshot. HTTP 403 is an entitlement-required result; transient transport, timeout, 408, 429, 5xx, decoding, and schema failures may reuse reset-valid stale windows under the normal cache rules.
-- The usage endpoint reports Go allowance percentages and reset durations only. Monthly reset timing follows the provider's subscription anniversary and month-end handling through the reported `resetInSec`; quota-axi does not synthesize a cycle start or fixed monthly duration. `useBalance: true` is preserved while parsing, but the endpoint does not expose the Zen monetary balance, so no balance amount, credit window, or known extra runway is reported.
+- The usage endpoint reports Go allowance percentages and reset durations only. Monthly reset timing follows the provider's subscription anniversary and month-end handling through the reported `resetInSec`; quota-axi does not synthesize a cycle start or fixed monthly duration. `useBalance: true` is retained as a derivation input and exposed only with `--full`; because the endpoint does not expose the Zen monetary balance, quota-axi reports no balance amount, credit window, or known extra runway, and leaves exhausted or projected-exhaustion runway unknown when that fallback is enabled.
 
 **Antigravity**
 

@@ -449,9 +449,7 @@ describe("quota semantics", () => {
     const opencode = provider("opencode-go", [
       window("five_hour", "session", 10, {
         windowSeconds: 18_000,
-        resetsAt: new Date(
-          Date.parse(GENERATED_AT) + 9_000_000,
-        ).toISOString(),
+        resetsAt: new Date(Date.parse(GENERATED_AT) + 9_000_000).toISOString(),
       }),
       window("weekly", "weekly", 100),
       window("monthly", "monthly", 100),

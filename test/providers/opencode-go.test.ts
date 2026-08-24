@@ -254,9 +254,7 @@ describe("OpenCode Go request and failure handling", () => {
     const interpreted = withQuotaSemantics(report, new Date(NOW).toISOString());
 
     expect(report.useBalance).toBe(true);
-    expect(
-      interpreted.quotaSemantics?.effectiveAvailability[0],
-    ).toMatchObject({
+    expect(interpreted.quotaSemantics?.effectiveAvailability[0]).toMatchObject({
       status: "known",
       effectivePercentRemaining: 0,
       runway: { status: "unknown" },
